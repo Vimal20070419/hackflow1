@@ -16,16 +16,30 @@ import importRoutes from './routes/importRoutes.js';
 const app = express();
 const server = http.createServer(app);
 
-// Initialize Socket.IO
-initSocketIO(server);
+// Initialize Socket.IO if in standalone server mode
+try {
+  initSocketIO(server);
+} catch (e) {
+  // socket catch for serverless
+}
 
 // Middleware
 app.use(cors({ origin: '*' }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Ensure DB connected on each request (Serverless friendly)
+app.use(async (_req, _res, next) => {
+  try {
+    await connectDB();
+  } catch (e) {
+    // continue
+  }
+  next();
+});
+
 // Request logger for audit
-app.use((req, res, next) => {
+app.use((req, _res, next) => {
   if (!req.path.startsWith('/api/health')) {
     console.log(`[API] ${req.method} ${req.path}`);
   }
@@ -43,7 +57,7 @@ app.use('/api/stats', statsRoutes);
 app.use('/api/import', importRoutes);
 
 // Health check & network info
-app.get('/api/health', (req, res) => {
+app.get('/api/health', (_req, res) => {
   res.json({
     status: 'online',
     timestamp: new Date(),
@@ -53,7 +67,7 @@ app.get('/api/health', (req, res) => {
 });
 
 // Error handling middleware
-app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error('[Server] Unhandled Error:', err);
   res.status(500).json({
     success: false,
@@ -61,16 +75,18 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
   });
 });
 
-// Start Server
-const startServer = async () => {
-  await connectDB();
-  server.listen(config.port, '0.0.0.0', () => {
-    console.log('\n======================================================');
-    console.log(`🚀 HackFlow Backend Server running on port ${config.port}`);
-    console.log(`📡 Local Access:   http://localhost:${config.port}`);
-    console.log(`📶 Network Access: http://${config.localIp}:${config.port}`);
-    console.log('======================================================\n');
+// Start Server when run directly in node/local environment
+if (!process.env.VERCEL) {
+  connectDB().then(() => {
+    server.listen(config.port, '0.0.0.0', () => {
+      console.log('\n======================================================');
+      console.log(`🚀 HackFlow Backend Server running on port ${config.port}`);
+      console.log(`📡 Local Access:   http://localhost:${config.port}`);
+      console.log(`📶 Network Access: http://${config.localIp}:${config.port}`);
+      console.log('======================================================\n');
+    });
   });
-};
+}
 
-startServer();
+export { app, server };
+export default app;
