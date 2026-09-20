@@ -2,10 +2,11 @@ import axios from 'axios';
 
 // When running on Vercel or cloud, use VITE_API_URL if configured, otherwise fallback to local/LAN host
 const getBaseUrl = () => {
-  if (import.meta.env.VITE_API_URL) {
-    return import.meta.env.VITE_API_URL;
+  const envUrl = (import.meta as any).env?.VITE_API_URL;
+  if (envUrl) {
+    return envUrl;
   }
-  const host = window.location.hostname;
+  const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
   return `http://${host}:5000/api`;
 };
 

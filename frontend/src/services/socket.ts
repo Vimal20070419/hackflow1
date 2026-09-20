@@ -4,11 +4,15 @@ let socket: Socket | null = null;
 
 export const getSocket = (): Socket => {
   if (!socket) {
+    const envSocket = (import.meta as any).env?.VITE_SOCKET_URL;
+    const envApi = (import.meta as any).env?.VITE_API_URL;
+    const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+
     const socketUrl =
-      import.meta.env.VITE_SOCKET_URL ||
-      (import.meta.env.VITE_API_URL
-        ? String(import.meta.env.VITE_API_URL).replace(/\/api\/?$/, '')
-        : `http://${window.location.hostname}:5000`);
+      envSocket ||
+      (envApi
+        ? String(envApi).replace(/\/api\/?$/, '')
+        : `http://${host}:5000`);
 
     socket = io(socketUrl, {
       autoConnect: true,
