@@ -138,9 +138,20 @@ export function parseCSVRegistrations(): Array<{
 
 export const seedDatabase = async (): Promise<void> => {
   try {
-    console.log('[Seed] Connecting to MongoDB...');
-    await mongoose.connect(config.mongoUri);
-    console.log('[Seed] Connected to MongoDB.');
+    const targetUri =
+      process.argv[2] ||
+      process.env.MONGODB_URI ||
+      process.env.MONGO_URI ||
+      config.mongoUri;
+
+    const maskedUri = targetUri.replace(/\/\/([^:]+):([^@]+)@/, '//$1:****@');
+    console.log(`[Seed] Connecting to MongoDB: ${maskedUri}`);
+
+    await mongoose.connect(targetUri, {
+      serverSelectionTimeoutMS: 15000,
+      connectTimeoutMS: 15000,
+    });
+    console.log(`[Seed] Successfully connected to MongoDB cluster!`);
 
     // 1. Seed Staff Accounts
     console.log('[Seed] Seeding Staff Accounts...');
