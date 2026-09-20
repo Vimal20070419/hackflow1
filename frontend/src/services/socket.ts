@@ -4,8 +4,13 @@ let socket: Socket | null = null;
 
 export const getSocket = (): Socket => {
   if (!socket) {
-    const host = window.location.hostname;
-    socket = io(`http://${host}:5000`, {
+    const socketUrl =
+      import.meta.env.VITE_SOCKET_URL ||
+      (import.meta.env.VITE_API_URL
+        ? String(import.meta.env.VITE_API_URL).replace(/\/api\/?$/, '')
+        : `http://${window.location.hostname}:5000`);
+
+    socket = io(socketUrl, {
       autoConnect: true,
       reconnection: true,
       reconnectionAttempts: 15,

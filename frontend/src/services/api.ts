@@ -1,7 +1,10 @@
 import axios from 'axios';
 
-// When running on localhost or via mobile on LAN, use window.location.hostname:5000 if not proxying
+// When running on Vercel or cloud, use VITE_API_URL if configured, otherwise fallback to local/LAN host
 const getBaseUrl = () => {
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL;
+  }
   const host = window.location.hostname;
   return `http://${host}:5000/api`;
 };
@@ -27,8 +30,7 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401 && !window.location.pathname.startsWith('/portal') && !window.location.pathname.startsWith('/scanner')) {
-      // Clear token only if we're in desk mode
-      // localStorage.removeItem('hackflow_token');
+      // Session handling
     }
     return Promise.reject(error);
   }
