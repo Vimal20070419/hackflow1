@@ -20,7 +20,7 @@ interface LoginPageProps {
 }
 
 export const LoginPage: React.FC<LoginPageProps> = ({ onSelectView, defaultDesk = 1 }) => {
-  const { login } = useAuth();
+  const { login, loginDemo } = useAuth();
   const [selectedDesk, setSelectedDesk] = useState<number>(defaultDesk === 2 ? 2 : 1);
   const [email, setEmail] = useState<string>(
     defaultDesk === 2 ? 'desk2@hackathon.org' : 'desk1@hackathon.org'
@@ -205,8 +205,19 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSelectView, defaultDesk 
               </div>
 
               {errorMsg && (
-                <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs">
-                  {errorMsg}
+                <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs space-y-2">
+                  <div>{errorMsg}</div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      loginDemo(selectedDesk);
+                      onSelectView(selectedDesk === 2 ? 'desk2' : 'desk1');
+                    }}
+                    className="w-full py-1.5 px-3 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 text-xs font-bold transition flex items-center justify-center gap-1.5"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>Continue in Demo / Offline Mode (Desk {selectedDesk})</span>
+                  </button>
                 </div>
               )}
 
@@ -217,6 +228,18 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSelectView, defaultDesk 
               >
                 <LogIn className="w-4 h-4" />
                 <span>{loading ? 'Authenticating...' : `Launch Desk ${selectedDesk} Dashboard`}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  loginDemo(selectedDesk);
+                  onSelectView(selectedDesk === 2 ? 'desk2' : 'desk1');
+                }}
+                className="w-full py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white text-xs font-medium border border-slate-800 transition flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                <span>Instant Demo Access (Desk {selectedDesk})</span>
               </button>
             </form>
           </div>
