@@ -1,13 +1,30 @@
 import axios from 'axios';
 
-// When running on Vercel or cloud, use VITE_API_URL if configured, otherwise fallback to local/LAN host
+// When running on Vercel, use relative `/api` route so it calls Vercel serverless function on HTTPS.
+// When running locally, call port 5000 on localhost/LAN IP.
 const getBaseUrl = () => {
   const envUrl = (import.meta as any).env?.VITE_API_URL;
   if (envUrl) {
     return envUrl;
   }
-  const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
-  return `http://${host}:5000/api`;
+
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname;
+    // Local development
+    if (
+      host === 'localhost' ||
+      host === '127.0.0.1' ||
+      host.startsWith('192.168.') ||
+      host.startsWith('10.') ||
+      host.endsWith('.local')
+    ) {
+      return `http://${host}:5000/api`;
+    }
+    // Deployed cloud / Vercel: use relative path to serverless functions on same origin
+    return '/api';
+  }
+
+  return 'http://localhost:5000/api';
 };
 
 export const api = axios.create({
@@ -30,9 +47,6 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401 && !window.location.pathname.startsWith('/portal') && !window.location.pathname.startsWith('/scanner')) {
-      // Session handling
-    }
     return Promise.reject(error);
   }
 );

@@ -12,13 +12,15 @@ export const getSocket = (): Socket => {
       envSocket ||
       (envApi
         ? String(envApi).replace(/\/api\/?$/, '')
-        : `http://${host}:5000`);
+        : host === 'localhost' || host === '127.0.0.1' || host.startsWith('192.168.')
+        ? `http://${host}:5000`
+        : window.location.origin);
 
     socket = io(socketUrl, {
       autoConnect: true,
       reconnection: true,
-      reconnectionAttempts: 15,
-      reconnectionDelay: 1000,
+      reconnectionAttempts: 10,
+      reconnectionDelay: 1500,
     });
 
     socket.on('connect', () => {
