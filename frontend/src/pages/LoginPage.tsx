@@ -11,6 +11,8 @@ import {
   Sparkles,
   Shield,
   ArrowRight,
+  UserCheck,
+  ExternalLink,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.js';
 
@@ -78,9 +80,23 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSelectView, defaultDesk 
             </div>
           </div>
 
-          <div className="flex items-center gap-3 text-xs text-slate-400">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-            <span className="text-emerald-400 font-medium">System Ready</span>
+          {/* Header Action: Participant Portal Link & System Status */}
+          <div className="flex items-center gap-4">
+            <button
+              type="button"
+              id="header-participant-portal-btn"
+              onClick={() => onSelectView('portal')}
+              className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700/80 hover:border-emerald-500/60 text-xs font-bold text-slate-200 hover:text-emerald-400 transition-all cursor-pointer shadow-sm"
+            >
+              <UserCheck className="w-4 h-4 text-emerald-400" />
+              <span>Participant Portal</span>
+              <ArrowRight className="w-3.5 h-3.5 opacity-70" />
+            </button>
+
+            <div className="hidden sm:flex items-center gap-2 text-xs text-slate-400">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span className="text-emerald-400 font-medium">System Ready</span>
+            </div>
           </div>
         </div>
       </header>
@@ -124,6 +140,34 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSelectView, defaultDesk 
                   </p>
                 </div>
               </div>
+            </div>
+
+            {/* Prominent Participant Portal Card */}
+            <div className="p-4.5 rounded-2xl bg-gradient-to-r from-emerald-950/40 via-slate-900 to-cyan-950/40 border border-emerald-500/40 shadow-lg space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30">
+                    <Sparkles className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-bold text-white">Are you a Participant?</h3>
+                    <p className="text-[11px] text-slate-300">
+                      Access team details and lock your problem statement.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                id="participant-portal-card-btn"
+                onClick={() => onSelectView('portal')}
+                className="w-full py-2.5 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md shadow-emerald-500/20"
+              >
+                <UserCheck className="w-4 h-4" />
+                <span>Open Participant Portal</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
             </div>
           </div>
 
@@ -241,14 +285,34 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSelectView, defaultDesk 
                 <Sparkles className="w-3.5 h-3.5 text-amber-400" />
                 <span>Instant Demo Access (Desk {selectedDesk})</span>
               </button>
+
+              {/* Extra Participant Portal text link */}
+              <div className="pt-2 border-t border-slate-800/80 text-center">
+                <button
+                  type="button"
+                  onClick={() => onSelectView('portal')}
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-400 hover:text-emerald-300 transition-colors cursor-pointer py-1"
+                >
+                  <BarcodeIcon className="w-3.5 h-3.5" />
+                  <span>Participant Wristband Portal</span>
+                  <ArrowRight className="w-3 h-3" />
+                </button>
+              </div>
             </form>
           </div>
         </div>
       </main>
 
       {/* Footer */}
-      <footer className="w-full border-t border-slate-800/80 py-4 text-center text-xs text-slate-500">
-        HackFlow &bull; Digital Barcode Registration System
+      <footer className="w-full border-t border-slate-800/80 py-4 text-center text-xs text-slate-500 flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-6">
+        <span>HackFlow &bull; Digital Barcode Registration System</span>
+        <button
+          type="button"
+          onClick={() => onSelectView('portal')}
+          className="text-slate-400 hover:text-emerald-400 transition-colors cursor-pointer font-medium"
+        >
+          Participant Portal &rarr;
+        </button>
       </footer>
     </div>
   );
