@@ -206,19 +206,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSelectView, defaultDesk 
               </div>
 
               {errorMsg && (
-                <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs space-y-2">
-                  <div>{errorMsg}</div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      loginDemo(1);
-                      onSelectView('desk1');
-                    }}
-                    className="w-full py-1.5 px-3 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
-                  >
-                    <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-                    <span>Continue in Demo / Offline Mode</span>
-                  </button>
+                <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs">
+                  {errorMsg}
                 </div>
               )}
 
@@ -229,18 +218,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSelectView, defaultDesk 
               >
                 <LogIn className="w-4 h-4" />
                 <span>{loading ? 'Authenticating...' : 'Sign In to Registration Desk'}</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  loginDemo(1);
-                  onSelectView('desk1');
-                }}
-                className="w-full py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white text-xs font-medium border border-slate-800 transition flex items-center justify-center gap-1.5 cursor-pointer"
-              >
-                <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                <span>Instant Demo Access</span>
               </button>
 
               {/* Extra Participant Portal text link */}
