@@ -4,6 +4,7 @@ export interface ITeamMember {
   name: string;
   email: string;
   phone: string;
+  collegeName?: string;
   isLeader?: boolean;
 }
 
@@ -45,6 +46,7 @@ const TeamMemberSchema = new Schema<ITeamMember>(
     name: { type: String, required: true, trim: true },
     email: { type: String, default: '', lowercase: true, trim: true },
     phone: { type: String, default: '', trim: true },
+    collegeName: { type: String, default: '', trim: true },
     isLeader: { type: Boolean, default: false },
   },
   { _id: false }

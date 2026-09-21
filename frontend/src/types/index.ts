@@ -2,6 +2,7 @@ export interface ITeamMember {
   name: string;
   email?: string;
   phone?: string;
+  collegeName?: string;
   collegeId?: string;
   isLeader?: boolean;
 }

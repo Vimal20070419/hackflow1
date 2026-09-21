@@ -18,10 +18,12 @@ import {
   Zap,
   ArrowRight,
   ShieldCheck,
-  Award,
   Check,
   X,
-  Info,
+  Globe,
+  GraduationCap,
+  School,
+  Shuffle,
 } from 'lucide-react';
 import { ITeam, IDatasetParticipant, ITeamMember } from '../types/index.js';
 import { api } from '../services/api.js';
@@ -42,6 +44,15 @@ interface CollegeItem {
   teamNames: string[];
 }
 
+export interface ISelectedMember {
+  name: string;
+  phone: string;
+  email: string;
+  collegeName: string;
+  isLeader: boolean;
+  domain?: string;
+}
+
 export const ManualRegistrationSection: React.FC<ManualRegistrationSectionProps> = ({
   deskNumber = 1,
   onSuccessCheckin,
@@ -49,20 +60,20 @@ export const ManualRegistrationSection: React.FC<ManualRegistrationSectionProps>
   // Step / Form Data States
   const [colleges, setColleges] = useState<CollegeItem[]>([]);
   const [loadingColleges, setLoadingColleges] = useState<boolean>(true);
-  const [selectedCollege, setSelectedCollege] = useState<string>('');
+  // 'ALL' means Inter-College / All Colleges view
+  const [selectedCollegeFilter, setSelectedCollegeFilter] = useState<string>('ALL');
   const [collegeSearch, setCollegeSearch] = useState<string>('');
 
-  // Participants & Teams data for selected college
-  const [collegeParticipants, setCollegeParticipants] = useState<IDatasetParticipant[]>([]);
+  // Participants & Teams data
+  const [datasetParticipants, setDatasetParticipants] = useState<IDatasetParticipant[]>([]);
   const [existingTeams, setExistingTeams] = useState<ITeam[]>([]);
-  const [loadingCollegeData, setLoadingCollegeData] = useState<boolean>(false);
+  const [loadingParticipants, setLoadingParticipants] = useState<boolean>(false);
   const [participantSearch, setParticipantSearch] = useState<string>('');
 
   // Form Fields
   const [teamName, setTeamName] = useState<string>('');
-  const [selectedMembers, setSelectedMembers] = useState<
-    Array<{ name: string; phone: string; email: string; isLeader: boolean; domain?: string }>
-  >([]);
+  const [primaryCollegeName, setPrimaryCollegeName] = useState<string>('');
+  const [selectedMembers, setSelectedMembers] = useState<ISelectedMember[]>([]);
   const [selectedLeaderName, setSelectedLeaderName] = useState<string>('');
   const [computedDomain, setComputedDomain] = useState<string>('Gen AI & AI');
   const [barcodeInput, setBarcodeInput] = useState<string>('');
@@ -78,6 +89,7 @@ export const ManualRegistrationSection: React.FC<ManualRegistrationSectionProps>
   const [customName, setCustomName] = useState<string>('');
   const [customPhone, setCustomPhone] = useState<string>('');
   const [customEmail, setCustomEmail] = useState<string>('');
+  const [customCollege, setCustomCollege] = useState<string>('');
 
   // Submission & Result States
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
@@ -91,76 +103,96 @@ export const ManualRegistrationSection: React.FC<ManualRegistrationSectionProps>
   // Print ref
   const printRef = useRef<HTMLDivElement>(null);
 
-  // 1. Fetch initial colleges list on mount
+  // 1. Fetch initial colleges list & participants on mount
   useEffect(() => {
-    fetchColleges();
+    fetchCollegesAndParticipants(selectedCollegeFilter);
   }, []);
 
-  const fetchColleges = async () => {
+  const fetchCollegesAndParticipants = async (collegeFilter: string = 'ALL') => {
     setLoadingColleges(true);
+    setLoadingParticipants(true);
     try {
-      const res = await api.get('/teams/dataset-participants');
+      const params: any = {};
+      if (collegeFilter && collegeFilter !== 'ALL') {
+        params.college = collegeFilter;
+      }
+      const res = await api.get('/teams/dataset-participants', { params });
       if (res.data.success) {
         setColleges(res.data.colleges || []);
+        setDatasetParticipants(res.data.participants || []);
+        setExistingTeams(res.data.existingTeams || []);
       }
     } catch (err: any) {
-      console.error('Failed to load dataset colleges:', err);
+      console.error('Failed to load dataset participants:', err);
     } finally {
       setLoadingColleges(false);
+      setLoadingParticipants(false);
     }
   };
 
-  // 2. Fetch participants & existing teams when a college is chosen
-  useEffect(() => {
-    if (!selectedCollege) {
-      setCollegeParticipants([]);
-      setExistingTeams([]);
-      return;
-    }
-
-    const fetchCollegeData = async () => {
-      setLoadingCollegeData(true);
-      try {
-        const res = await api.get('/teams/dataset-participants', {
-          params: { college: selectedCollege },
-        });
-        if (res.data.success) {
-          setCollegeParticipants(res.data.participants || []);
-          setExistingTeams(res.data.existingTeams || []);
-        }
-      } catch (err) {
-        console.error('Failed to load college data:', err);
-      } finally {
-        setLoadingCollegeData(false);
+  // 2. Fetch participants when college filter changes (without clearing selected members!)
+  const handleSelectCollegeFilter = async (college: string) => {
+    sound.playClick();
+    setSelectedCollegeFilter(college);
+    setLoadingParticipants(true);
+    try {
+      const params: any = {};
+      if (college !== 'ALL') {
+        params.college = college;
       }
-    };
+      const res = await api.get('/teams/dataset-participants', { params });
+      if (res.data.success) {
+        setDatasetParticipants(res.data.participants || []);
+        setExistingTeams(res.data.existingTeams || []);
+      }
+    } catch (err) {
+      console.error('Failed to load participants for college:', err);
+    } finally {
+      setLoadingParticipants(false);
+    }
+  };
 
-    fetchCollegeData();
-  }, [selectedCollege]);
+  // Distinct colleges present in the currently selected team roster
+  const memberColleges = useMemo(() => {
+    const list = selectedMembers.map((m) => m.collegeName).filter(Boolean);
+    return Array.from(new Set(list));
+  }, [selectedMembers]);
 
-  // 3. Automatically compute Team Domain when Leader changes (Locked to Leader's Domain in dataset!)
+  // 3. Automatically compute Team Domain and Primary College when Leader changes
   useEffect(() => {
     if (!selectedLeaderName) {
       return;
     }
 
-    // Look for leader in college dataset participants
-    const match = collegeParticipants.find(
+    // Look for leader in all dataset participants
+    const match = datasetParticipants.find(
       (p) => p.name.trim().toLowerCase() === selectedLeaderName.trim().toLowerCase()
     );
 
-    if (match && match.domain) {
-      setComputedDomain(match.domain);
+    if (match) {
+      if (match.domain) setComputedDomain(match.domain);
+      if (!primaryCollegeName || memberColleges.length > 1) {
+        setPrimaryCollegeName(match.collegeName);
+      }
     } else {
-      // Look in selected members if domain is attached
       const member = selectedMembers.find(
         (m) => m.name.trim().toLowerCase() === selectedLeaderName.trim().toLowerCase()
       );
       if (member?.domain) {
         setComputedDomain(member.domain);
       }
+      if (member?.collegeName && (!primaryCollegeName || memberColleges.length > 1)) {
+        setPrimaryCollegeName(member.collegeName);
+      }
     }
-  }, [selectedLeaderName, collegeParticipants, selectedMembers]);
+  }, [selectedLeaderName, datasetParticipants, selectedMembers]);
+
+  // If member colleges change and only 1 college exists, auto-set primary college
+  useEffect(() => {
+    if (memberColleges.length === 1 && !primaryCollegeName) {
+      setPrimaryCollegeName(memberColleges[0]);
+    }
+  }, [memberColleges, primaryCollegeName]);
 
   // 4. Barcode Verification Debounce
   useEffect(() => {
@@ -215,29 +247,34 @@ export const ManualRegistrationSection: React.FC<ManualRegistrationSectionProps>
 
   // Filtered participants by search
   const filteredParticipants = useMemo(() => {
-    if (!participantSearch.trim()) return collegeParticipants;
+    if (!participantSearch.trim()) return datasetParticipants;
     const q = participantSearch.toLowerCase();
-    return collegeParticipants.filter(
+    return datasetParticipants.filter(
       (p) =>
         p.name.toLowerCase().includes(q) ||
         p.phone.toLowerCase().includes(q) ||
         p.email.toLowerCase().includes(q) ||
+        p.collegeName.toLowerCase().includes(q) ||
         p.originalTeamName.toLowerCase().includes(q) ||
         p.domain.toLowerCase().includes(q)
     );
-  }, [collegeParticipants, participantSearch]);
+  }, [datasetParticipants, participantSearch]);
 
   // Action: Select / Autofill from Existing Team
   const handleSelectExistingTeam = (team: ITeam) => {
     sound.playClick();
     setTeamName(team.teamName);
-    const members = (team.members || []).map((m, idx) => {
-      // find participant in dataset to preserve domain
-      const p = collegeParticipants.find((cp) => cp.name.toLowerCase() === m.name.toLowerCase());
+    if (team.collegeName) {
+      setPrimaryCollegeName(team.collegeName);
+    }
+
+    const members: ISelectedMember[] = (team.members || []).map((m, idx) => {
+      const p = datasetParticipants.find((cp) => cp.name.toLowerCase() === m.name.toLowerCase());
       return {
         name: m.name,
         phone: m.phone || p?.phone || '',
         email: m.email || p?.email || '',
+        collegeName: m.collegeName || p?.collegeName || team.collegeName || 'Engineering College',
         isLeader: Boolean(m.isLeader || (team.teamLeader && team.teamLeader.name === m.name) || idx === 0),
         domain: p?.domain || team.domain,
       };
@@ -248,10 +285,11 @@ export const ManualRegistrationSection: React.FC<ManualRegistrationSectionProps>
     if (leader) {
       setSelectedLeaderName(leader.name);
       if (leader.domain) setComputedDomain(leader.domain);
+      if (leader.collegeName) setPrimaryCollegeName(leader.collegeName);
     }
   };
 
-  // Action: Toggle Member Checkbox
+  // Action: Toggle Member Checkbox (Supports picking across multiple colleges!)
   const handleToggleMember = (participant: IDatasetParticipant) => {
     sound.playClick();
     const isSelected = selectedMembers.some(
@@ -264,12 +302,14 @@ export const ManualRegistrationSection: React.FC<ManualRegistrationSectionProps>
         (m) => m.name.toLowerCase() !== participant.name.toLowerCase()
       );
       setSelectedMembers(updated);
+
       // If removed member was leader, reassign leader
       if (selectedLeaderName.toLowerCase() === participant.name.toLowerCase()) {
         if (updated.length > 0) {
           updated[0].isLeader = true;
           setSelectedLeaderName(updated[0].name);
           if (updated[0].domain) setComputedDomain(updated[0].domain);
+          if (updated[0].collegeName) setPrimaryCollegeName(updated[0].collegeName);
         } else {
           setSelectedLeaderName('');
         }
@@ -277,10 +317,11 @@ export const ManualRegistrationSection: React.FC<ManualRegistrationSectionProps>
     } else {
       // Add member
       const isFirst = selectedMembers.length === 0;
-      const newMember = {
+      const newMember: ISelectedMember = {
         name: participant.name,
         phone: participant.phone,
         email: participant.email,
+        collegeName: participant.collegeName || 'Engineering College',
         isLeader: isFirst,
         domain: participant.domain,
       };
@@ -291,6 +332,7 @@ export const ManualRegistrationSection: React.FC<ManualRegistrationSectionProps>
       if (isFirst) {
         setSelectedLeaderName(participant.name);
         setComputedDomain(participant.domain);
+        setPrimaryCollegeName(participant.collegeName);
       }
 
       // Auto set team name if empty
@@ -310,12 +352,14 @@ export const ManualRegistrationSection: React.FC<ManualRegistrationSectionProps>
     }));
     setSelectedMembers(updated);
 
-    // Look up domain for this leader in the dataset
-    const matched = collegeParticipants.find(
+    // Look up domain & college for this leader in the dataset or selected members
+    const matched = datasetParticipants.find(
       (p) => p.name.toLowerCase() === memberName.toLowerCase()
-    );
-    if (matched && matched.domain) {
-      setComputedDomain(matched.domain);
+    ) || selectedMembers.find((m) => m.name.toLowerCase() === memberName.toLowerCase());
+
+    if (matched) {
+      if (matched.domain) setComputedDomain(matched.domain);
+      if (matched.collegeName) setPrimaryCollegeName(matched.collegeName);
     }
   };
 
@@ -323,20 +367,27 @@ export const ManualRegistrationSection: React.FC<ManualRegistrationSectionProps>
   const handleAddCustomMember = () => {
     if (!customName.trim()) return;
     const isFirst = selectedMembers.length === 0;
-    const newMember = {
+    const memberCollege = customCollege.trim() || (selectedCollegeFilter !== 'ALL' ? selectedCollegeFilter : primaryCollegeName) || 'Engineering College';
+
+    const newMember: ISelectedMember = {
       name: customName.trim(),
       phone: customPhone.trim(),
       email: customEmail.trim().toLowerCase(),
+      collegeName: memberCollege,
       isLeader: isFirst,
       domain: computedDomain,
     };
+
     setSelectedMembers([...selectedMembers, newMember]);
     if (isFirst) {
       setSelectedLeaderName(customName.trim());
+      setPrimaryCollegeName(memberCollege);
     }
+
     setCustomName('');
     setCustomPhone('');
     setCustomEmail('');
+    setCustomCollege('');
     setShowAddCustomModal(false);
     sound.playSuccess();
   };
@@ -346,8 +397,10 @@ export const ManualRegistrationSection: React.FC<ManualRegistrationSectionProps>
     e.preventDefault();
     setErrorMessage(null);
 
-    if (!selectedCollege) {
-      setErrorMessage('Please select a college from the dataset.');
+    const finalCollegeName = primaryCollegeName.trim() || (selectedCollegeFilter !== 'ALL' ? selectedCollegeFilter : memberColleges[0]) || 'Engineering College';
+
+    if (!finalCollegeName) {
+      setErrorMessage('Please select or specify a primary college name.');
       return;
     }
     if (!teamName.trim()) {
@@ -366,7 +419,7 @@ export const ManualRegistrationSection: React.FC<ManualRegistrationSectionProps>
     setIsSubmitting(true);
     try {
       const payload = {
-        collegeName: selectedCollege,
+        collegeName: finalCollegeName,
         teamName: teamName.trim(),
         members: selectedMembers,
         leaderName: selectedLeaderName,
@@ -402,6 +455,7 @@ export const ManualRegistrationSection: React.FC<ManualRegistrationSectionProps>
   // Reset form to register another team
   const handleResetForm = () => {
     setTeamName('');
+    setPrimaryCollegeName('');
     setSelectedMembers([]);
     setSelectedLeaderName('');
     setBarcodeInput('');
@@ -429,22 +483,23 @@ export const ManualRegistrationSection: React.FC<ManualRegistrationSectionProps>
             </div>
             <h1 className="text-2xl font-black text-white tracking-tight flex items-center gap-3">
               <span>Manual Team Registration & Verification</span>
-              <span className="text-xs px-2.5 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 font-mono font-medium">
-                Live Dataset Mode
+              <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-mono font-medium flex items-center gap-1">
+                <Globe className="w-3.5 h-3.5" />
+                <span>Multi-College Supported</span>
               </span>
             </h1>
-            <p className="text-slate-400 text-sm mt-1">
-              Select college and participants from dataset. The team's domain is strictly locked to the designated Leader's registered domain in the dataset.
+            <p className="text-slate-300 text-sm mt-1">
+              Select participants from single or multiple colleges (Inter-College Teams). The team domain is strictly locked to the designated Leader's registered domain in the dataset.
             </p>
           </div>
 
           <div className="flex items-center gap-3">
             <button
-              onClick={fetchColleges}
-              className="px-3 py-2 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 hover:text-white border border-slate-700 transition flex items-center gap-2 text-xs font-semibold"
+              onClick={() => fetchCollegesAndParticipants(selectedCollegeFilter)}
+              className="px-3 py-2 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 hover:text-white border border-slate-700 transition flex items-center gap-2 text-xs font-semibold cursor-pointer"
               title="Refresh dataset from server"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${loadingColleges ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-3.5 h-3.5 ${loadingColleges || loadingParticipants ? 'animate-spin' : ''}`} />
               <span>Sync Dataset</span>
             </button>
             <div className="px-4 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-mono font-medium flex items-center gap-2">
@@ -476,10 +531,12 @@ export const ManualRegistrationSection: React.FC<ManualRegistrationSectionProps>
                 <div>
                   <span className="text-xs font-mono uppercase tracking-wider text-cyan-400">Team Name</span>
                   <h3 className="text-xl font-black text-white">{successResult.team.teamName}</h3>
-                  <p className="text-xs text-slate-400 flex items-center gap-1.5 mt-0.5">
-                    <Building className="w-3.5 h-3.5 text-slate-500" />
-                    <span>{successResult.team.collegeName}</span>
-                  </p>
+                  <div className="flex flex-wrap items-center gap-2 mt-1">
+                    <p className="text-xs text-slate-300 flex items-center gap-1.5">
+                      <Building className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>{successResult.team.collegeName}</span>
+                    </p>
+                  </div>
                 </div>
                 <div className="text-right">
                   <span className="text-xs font-mono text-slate-400">Desk Verified</span>
@@ -520,7 +577,7 @@ export const ManualRegistrationSection: React.FC<ManualRegistrationSectionProps>
                 </div>
               </div>
 
-              {/* Members Roster */}
+              {/* Members Roster with individual Colleges */}
               <div>
                 <span className="text-xs font-mono uppercase tracking-wider text-slate-400 mb-2 block">
                   Registered Members ({successResult.team.members?.length || 0})
@@ -535,16 +592,20 @@ export const ManualRegistrationSection: React.FC<ManualRegistrationSectionProps>
                           : 'bg-slate-900 border-slate-800 text-slate-300'
                       }`}
                     >
-                      <div>
+                      <div className="space-y-0.5">
                         <div className="font-semibold flex items-center gap-1.5">
-                          {m.name}
+                          <span>{m.name}</span>
                           {m.isLeader && (
                             <span className="px-1.5 py-0.2 rounded bg-amber-400/20 text-amber-300 text-[10px] font-bold">
                               LEADER
                             </span>
                           )}
                         </div>
-                        <div className="text-[11px] text-slate-400">{m.phone || 'No phone'}</div>
+                        <div className="text-[11px] text-cyan-400 truncate max-w-[200px] flex items-center gap-1">
+                          <GraduationCap className="w-3 h-3 text-cyan-400 shrink-0" />
+                          <span>{m.collegeName || successResult.team.collegeName}</span>
+                        </div>
+                        <div className="text-[10px] text-slate-400 font-mono">{m.phone || 'No phone'}</div>
                       </div>
                     </div>
                   ))}
@@ -556,14 +617,14 @@ export const ManualRegistrationSection: React.FC<ManualRegistrationSectionProps>
             <div className="flex items-center justify-between pt-4 border-t border-slate-800">
               <button
                 onClick={handlePrint}
-                className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-semibold text-sm transition flex items-center gap-2 border border-slate-700"
+                className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-semibold text-sm transition flex items-center gap-2 border border-slate-700 cursor-pointer"
               >
                 <Printer className="w-4 h-4" />
                 <span>Print Check-in Receipt</span>
               </button>
               <button
                 onClick={handleResetForm}
-                className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold text-sm transition shadow-lg shadow-cyan-500/25 flex items-center gap-2"
+                className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold text-sm transition shadow-lg shadow-cyan-500/25 flex items-center gap-2 cursor-pointer"
               >
                 <span>Register Next Team</span>
                 <ArrowRight className="w-4 h-4" />
@@ -574,253 +635,301 @@ export const ManualRegistrationSection: React.FC<ManualRegistrationSectionProps>
       ) : (
         /* Main Registration Form Grid */
         <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* LEFT COLUMN: College & Participant Selector (7 Cols) */}
+          {/* LEFT COLUMN: Multi-College Selector & Participant Selector (7 Cols) */}
           <div className="lg:col-span-7 space-y-6">
-            {/* 1. College Selector Card */}
+            {/* 1. Multi-College Selector Card */}
             <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 backdrop-blur-md shadow-xl space-y-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <div className="w-7 h-7 rounded-lg bg-cyan-500/20 text-cyan-400 flex items-center justify-center font-bold text-sm">
                     1
                   </div>
-                  <h2 className="text-base font-bold text-white flex items-center gap-2">
-                    <Building className="w-4 h-4 text-cyan-400" />
-                    <span>Select College from Dataset</span>
-                  </h2>
+                  <div>
+                    <h2 className="text-base font-bold text-white flex items-center gap-2">
+                      <School className="w-4 h-4 text-cyan-400" />
+                      <span>Select College / Search Mode</span>
+                    </h2>
+                    <p className="text-[11px] text-slate-400">
+                      Switch between colleges freely — your chosen team members will remain preserved!
+                    </p>
+                  </div>
                 </div>
-                {selectedCollege && (
-                  <span className="text-xs text-cyan-400 bg-cyan-500/10 border border-cyan-500/30 px-2 py-0.5 rounded-full font-mono">
-                    {collegeParticipants.length} students found
-                  </span>
-                )}
+
+                {/* College count pill */}
+                <span className="text-xs text-cyan-400 bg-cyan-500/10 border border-cyan-500/30 px-2.5 py-0.5 rounded-full font-mono">
+                  {colleges.length} Colleges Available
+                </span>
               </div>
 
-              {/* College Search / Select input */}
-              <div className="space-y-2">
-                <div className="relative">
-                  <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-500" />
+              {/* College Filter Option: ALL COLLEGES vs SPECIFIC COLLEGES */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleSelectCollegeFilter('ALL')}
+                  className={`p-3 rounded-xl border text-left transition flex items-center justify-between cursor-pointer ${
+                    selectedCollegeFilter === 'ALL'
+                      ? 'bg-gradient-to-r from-cyan-500/20 to-indigo-500/20 border-cyan-500/60 text-white font-bold shadow-md shadow-cyan-500/10'
+                      : 'bg-slate-950/60 border-slate-800 text-slate-300 hover:bg-slate-800/70 hover:border-slate-700'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <Globe className="w-4 h-4 text-cyan-400 shrink-0" />
+                    <div>
+                      <div className="text-xs font-bold text-white">🌐 All Colleges (Inter-College)</div>
+                      <div className="text-[10px] text-slate-400">Search & pick from any college</div>
+                    </div>
+                  </div>
+                  {selectedCollegeFilter === 'ALL' && (
+                    <Check className="w-4 h-4 text-cyan-400 stroke-[3]" />
+                  )}
+                </button>
+
+                <div className="relative flex items-center">
+                  <Search className="w-3.5 h-3.5 absolute left-3 text-slate-500" />
                   <input
                     type="text"
-                    placeholder="Search or filter colleges (e.g., JJ College, Kamaraj, Nandha...)"
+                    placeholder="Filter college list..."
                     value={collegeSearch}
                     onChange={(e) => setCollegeSearch(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 text-sm text-white placeholder-slate-500 outline-none transition"
+                    className="w-full pl-8 pr-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 outline-none focus:border-cyan-500"
                   />
                   {collegeSearch && (
                     <button
                       type="button"
                       onClick={() => setCollegeSearch('')}
-                      className="absolute right-3 top-3 text-slate-500 hover:text-slate-300"
+                      className="absolute right-2.5 text-slate-500 hover:text-slate-300"
                     >
-                      <X className="w-4 h-4" />
+                      <X className="w-3.5 h-3.5" />
                     </button>
                   )}
                 </div>
+              </div>
 
-                {/* College Selector Dropdown / Scroll List */}
-                <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1 custom-scrollbar">
-                  {loadingColleges ? (
-                    <div className="py-6 text-center text-slate-500 text-xs flex items-center justify-center gap-2">
-                      <RefreshCw className="w-4 h-4 animate-spin text-cyan-400" />
-                      <span>Loading colleges from dataset...</span>
-                    </div>
-                  ) : filteredColleges.length === 0 ? (
-                    <div className="py-4 text-center text-slate-500 text-xs">
-                      No colleges matching "{collegeSearch}"
-                    </div>
-                  ) : (
-                    filteredColleges.map((c) => {
-                      const isSelected = selectedCollege === c.collegeName;
-                      return (
-                        <button
-                          key={c.collegeName}
-                          type="button"
-                          onClick={() => {
-                            sound.playClick();
-                            setSelectedCollege(c.collegeName);
-                            // reset team state for fresh college
-                            setSelectedMembers([]);
-                            setSelectedLeaderName('');
-                            setTeamName('');
-                          }}
-                          className={`w-full text-left px-3.5 py-2.5 rounded-xl text-xs transition flex items-center justify-between border ${
-                            isSelected
-                              ? 'bg-cyan-500/20 border-cyan-500/50 text-white font-semibold shadow-sm shadow-cyan-500/10'
-                              : 'bg-slate-950/60 border-slate-800/80 text-slate-300 hover:bg-slate-800/70 hover:border-slate-700'
-                          }`}
-                        >
-                          <div className="truncate pr-2">
-                            <div className="truncate font-medium">{c.collegeName}</div>
-                            <div className="text-[10px] text-slate-400 font-mono mt-0.5">
-                              {c.teamCount} registered teams &bull; {c.participantCount} participants
-                            </div>
-                          </div>
-                          {isSelected && (
-                            <div className="w-5 h-5 rounded-full bg-cyan-400 text-slate-950 flex items-center justify-center shrink-0">
-                              <Check className="w-3 h-3 stroke-[3]" />
-                            </div>
+              {/* College Horizontal Quick Pills / Dropdown */}
+              <div className="max-h-36 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
+                {loadingColleges ? (
+                  <div className="py-4 text-center text-slate-500 text-xs flex items-center justify-center gap-2">
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-cyan-400" />
+                    <span>Loading colleges...</span>
+                  </div>
+                ) : filteredColleges.length === 0 ? (
+                  <div className="py-2 text-center text-slate-500 text-xs">
+                    No colleges matching "{collegeSearch}"
+                  </div>
+                ) : (
+                  filteredColleges.map((c) => {
+                    const isSelected = selectedCollegeFilter === c.collegeName;
+                    const membersCountFromThisCollege = selectedMembers.filter(
+                      (sm) => sm.collegeName === c.collegeName
+                    ).length;
+
+                    return (
+                      <button
+                        key={c.collegeName}
+                        type="button"
+                        onClick={() => handleSelectCollegeFilter(c.collegeName)}
+                        className={`w-full text-left px-3 py-2 rounded-xl text-xs transition flex items-center justify-between border cursor-pointer ${
+                          isSelected
+                            ? 'bg-cyan-500/20 border-cyan-500/50 text-white font-semibold shadow-sm shadow-cyan-500/10'
+                            : 'bg-slate-950/60 border-slate-800/80 text-slate-300 hover:bg-slate-800/70 hover:border-slate-700'
+                        }`}
+                      >
+                        <div className="truncate pr-2 flex items-center gap-2">
+                          <Building className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                          <div className="truncate font-medium">{c.collegeName}</div>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          {membersCountFromThisCollege > 0 && (
+                            <span className="px-1.5 py-0.2 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-bold">
+                              {membersCountFromThisCollege} in team
+                            </span>
                           )}
-                        </button>
-                      );
-                    })
-                  )}
-                </div>
+                          <span className="text-[10px] text-slate-400 font-mono">
+                            {c.participantCount} students
+                          </span>
+                          {isSelected && (
+                            <Check className="w-3.5 h-3.5 text-cyan-400 stroke-[3]" />
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })
+                )}
               </div>
             </div>
 
-            {/* 2. Participants Roster from Dataset for Selected College */}
-            {selectedCollege && (
-              <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 backdrop-blur-md shadow-xl space-y-4 animate-in fade-in duration-200">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="w-7 h-7 rounded-lg bg-indigo-500/20 text-indigo-400 flex items-center justify-center font-bold text-sm">
-                      2
-                    </div>
-                    <div>
-                      <h2 className="text-base font-bold text-white flex items-center gap-2">
-                        <Users className="w-4 h-4 text-indigo-400" />
-                        <span>Select Team Members from Dataset</span>
-                      </h2>
-                      <p className="text-slate-400 text-xs">
-                        Check participants from this college to include in the team roster.
-                      </p>
-                    </div>
+            {/* 2. Participants Roster from Dataset (Filtered or Universal) */}
+            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 backdrop-blur-md shadow-xl space-y-4 animate-in fade-in duration-200">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-indigo-500/20 text-indigo-400 flex items-center justify-center font-bold text-sm">
+                    2
                   </div>
+                  <div>
+                    <h2 className="text-base font-bold text-white flex items-center gap-2">
+                      <Users className="w-4 h-4 text-indigo-400" />
+                      <span>
+                        {selectedCollegeFilter === 'ALL'
+                          ? 'Select Members across All Colleges'
+                          : `Select Members from ${selectedCollegeFilter}`}
+                      </span>
+                    </h2>
+                    <p className="text-slate-400 text-xs">
+                      Check participants to add to team. You can pick students from different colleges.
+                    </p>
+                  </div>
+                </div>
 
+                <button
+                  type="button"
+                  onClick={() => setShowAddCustomModal(true)}
+                  className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-xs font-medium transition flex items-center gap-1 cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>+ Custom Member</span>
+                </button>
+              </div>
+
+              {/* Quick Existing Team Pre-Sets (if viewing a specific college) */}
+              {existingTeams.length > 0 && selectedCollegeFilter !== 'ALL' && (
+                <div className="p-3 bg-slate-950/80 rounded-xl border border-slate-800/80 space-y-2">
+                  <div className="text-[11px] font-mono uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                    <Sparkles className="w-3 h-3 text-amber-400" />
+                    <span>Quick Load Existing Teams for {selectedCollegeFilter}:</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {existingTeams.map((t) => (
+                      <button
+                        key={t._id}
+                        type="button"
+                        onClick={() => handleSelectExistingTeam(t)}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-mono font-medium transition border flex items-center gap-1.5 cursor-pointer ${
+                          teamName.toLowerCase() === t.teamName.toLowerCase()
+                            ? 'bg-amber-500/20 border-amber-500/50 text-amber-300'
+                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                        }`}
+                      >
+                        <span>{t.teamName}</span>
+                        <span className="text-[10px] text-slate-500">({t.members?.length || 0}m)</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Search input across participants */}
+              <div className="relative">
+                <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-500" />
+                <input
+                  type="text"
+                  placeholder="Search participant by name, college, phone, email, or domain..."
+                  value={participantSearch}
+                  onChange={(e) => setParticipantSearch(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-sm text-white placeholder-slate-500 outline-none transition"
+                />
+                {participantSearch && (
                   <button
                     type="button"
-                    onClick={() => setShowAddCustomModal(true)}
-                    className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-xs font-medium transition flex items-center gap-1"
+                    onClick={() => setParticipantSearch('')}
+                    className="absolute right-3 top-3 text-slate-500 hover:text-slate-300"
                   >
-                    <Plus className="w-3.5 h-3.5 text-cyan-400" />
-                    <span>+ Custom Member</span>
+                    <X className="w-4 h-4" />
                   </button>
-                </div>
-
-                {/* Quick Existing Team Pre-Sets */}
-                {existingTeams.length > 0 && (
-                  <div className="p-3 bg-slate-950/80 rounded-xl border border-slate-800/80 space-y-2">
-                    <div className="text-[11px] font-mono uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                      <Sparkles className="w-3 h-3 text-amber-400" />
-                      <span>Quick Load Existing Teams for this College:</span>
-                    </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {existingTeams.map((t) => (
-                        <button
-                          key={t._id}
-                          type="button"
-                          onClick={() => handleSelectExistingTeam(t)}
-                          className={`px-2.5 py-1 rounded-lg text-xs font-mono font-medium transition border flex items-center gap-1.5 ${
-                            teamName.toLowerCase() === t.teamName.toLowerCase()
-                              ? 'bg-amber-500/20 border-amber-500/50 text-amber-300'
-                              : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
-                          }`}
-                        >
-                          <span>{t.teamName}</span>
-                          <span className="text-[10px] text-slate-500">({t.members?.length || 0}m)</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
                 )}
+              </div>
 
-                {/* Search in College Participants */}
-                <div className="relative">
-                  <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-500" />
-                  <input
-                    type="text"
-                    placeholder="Search member by name, phone, email, or domain..."
-                    value={participantSearch}
-                    onChange={(e) => setParticipantSearch(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-sm text-white placeholder-slate-500 outline-none transition"
-                  />
-                </div>
+              {/* Participant List */}
+              <div className="max-h-80 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+                {loadingParticipants ? (
+                  <div className="py-8 text-center text-slate-500 text-xs flex items-center justify-center gap-2">
+                    <RefreshCw className="w-4 h-4 animate-spin text-indigo-400" />
+                    <span>Loading participants...</span>
+                  </div>
+                ) : filteredParticipants.length === 0 ? (
+                  <div className="py-6 text-center text-slate-500 text-xs">
+                    No participants found matching "{participantSearch}".
+                  </div>
+                ) : (
+                  filteredParticipants.map((p, idx) => {
+                    const isSelected = selectedMembers.some(
+                      (m) => m.name.toLowerCase() === p.name.toLowerCase()
+                    );
+                    const isLeader =
+                      selectedLeaderName.toLowerCase() === p.name.toLowerCase();
 
-                {/* Participant List */}
-                <div className="max-h-72 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
-                  {loadingCollegeData ? (
-                    <div className="py-8 text-center text-slate-500 text-xs flex items-center justify-center gap-2">
-                      <RefreshCw className="w-4 h-4 animate-spin text-indigo-400" />
-                      <span>Loading participants for {selectedCollege}...</span>
-                    </div>
-                  ) : filteredParticipants.length === 0 ? (
-                    <div className="py-6 text-center text-slate-500 text-xs">
-                      No participants found in dataset matching criteria.
-                    </div>
-                  ) : (
-                    filteredParticipants.map((p, idx) => {
-                      const isSelected = selectedMembers.some(
-                        (m) => m.name.toLowerCase() === p.name.toLowerCase()
-                      );
-                      const isLeader =
-                        selectedLeaderName.toLowerCase() === p.name.toLowerCase();
+                    return (
+                      <div
+                        key={`${p.name}_${p.collegeName}_${idx}`}
+                        onClick={() => handleToggleMember(p)}
+                        className={`p-3 rounded-xl border text-xs transition cursor-pointer flex items-center justify-between ${
+                          isSelected
+                            ? 'bg-indigo-950/40 border-indigo-500/50 shadow-sm shadow-indigo-500/10'
+                            : 'bg-slate-950/60 border-slate-800/80 hover:bg-slate-800/50 hover:border-slate-700 text-slate-300'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => {}} // handled by div click
+                            className="w-4 h-4 rounded text-indigo-500 focus:ring-0 focus:ring-offset-0 bg-slate-900 border-slate-700 cursor-pointer"
+                          />
+                          <div>
+                            <div className="font-semibold text-white flex items-center gap-2">
+                              <span>{p.name}</span>
+                              {isLeader && (
+                                <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 text-[10px] font-bold flex items-center gap-1">
+                                  <Crown className="w-3 h-3" />
+                                  <span>LEADER</span>
+                                </span>
+                              )}
+                            </div>
 
-                      return (
-                        <div
-                          key={idx}
-                          onClick={() => handleToggleMember(p)}
-                          className={`p-3 rounded-xl border text-xs transition cursor-pointer flex items-center justify-between ${
-                            isSelected
-                              ? 'bg-indigo-950/40 border-indigo-500/50 shadow-sm shadow-indigo-500/10'
-                              : 'bg-slate-950/60 border-slate-800/80 hover:bg-slate-800/50 hover:border-slate-700 text-slate-300'
-                          }`}
-                        >
-                          <div className="flex items-center gap-3">
-                            <input
-                              type="checkbox"
-                              checked={isSelected}
-                              onChange={() => {}} // handled by div click
-                              className="w-4 h-4 rounded text-indigo-500 focus:ring-0 focus:ring-offset-0 bg-slate-900 border-slate-700 cursor-pointer"
-                            />
-                            <div>
-                              <div className="font-semibold text-white flex items-center gap-2">
-                                <span>{p.name}</span>
-                                {isLeader && (
-                                  <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 text-[10px] font-bold flex items-center gap-1">
-                                    <Crown className="w-3 h-3" />
-                                    <span>LEADER</span>
-                                  </span>
-                                )}
-                              </div>
-                              <div className="flex items-center gap-3 text-[11px] text-slate-400 mt-0.5">
-                                {p.phone && (
-                                  <span className="flex items-center gap-1 font-mono">
-                                    <Phone className="w-2.5 h-2.5 text-slate-500" />
-                                    {p.phone}
-                                  </span>
-                                )}
-                                {p.email && (
-                                  <span className="flex items-center gap-1 truncate max-w-[180px]">
-                                    <Mail className="w-2.5 h-2.5 text-slate-500" />
-                                    {p.email}
-                                  </span>
-                                )}
-                              </div>
+                            {/* Member College Tag */}
+                            <div className="text-[11px] text-cyan-400 flex items-center gap-1 mt-0.5">
+                              <Building className="w-3 h-3 text-cyan-500 shrink-0" />
+                              <span className="truncate max-w-[280px]">{p.collegeName}</span>
+                            </div>
+
+                            <div className="flex items-center gap-3 text-[10px] text-slate-400 mt-0.5">
+                              {p.phone && (
+                                <span className="flex items-center gap-1 font-mono">
+                                  <Phone className="w-2.5 h-2.5 text-slate-500" />
+                                  {p.phone}
+                                </span>
+                              )}
+                              {p.email && (
+                                <span className="flex items-center gap-1 truncate max-w-[180px]">
+                                  <Mail className="w-2.5 h-2.5 text-slate-500" />
+                                  {p.email}
+                                </span>
+                              )}
                             </div>
                           </div>
-
-                          <div className="text-right flex flex-col items-end gap-1">
-                            <span className="px-2 py-0.5 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 text-[10px] font-mono">
-                              {p.domain}
-                            </span>
-                            {p.originalTeamName && (
-                              <span className="text-[10px] text-slate-500 font-mono truncate max-w-[120px]">
-                                Team: {p.originalTeamName}
-                              </span>
-                            )}
-                          </div>
                         </div>
-                      );
-                    })
-                  )}
-                </div>
+
+                        <div className="text-right flex flex-col items-end gap-1">
+                          <span className="px-2 py-0.5 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 text-[10px] font-mono">
+                            {p.domain}
+                          </span>
+                          {p.originalTeamName && (
+                            <span className="text-[10px] text-slate-500 font-mono truncate max-w-[130px]">
+                              Team: {p.originalTeamName}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
               </div>
-            )}
+            </div>
           </div>
 
           {/* RIGHT COLUMN: Team Composition, Leader & Domain Lock, Barcode Check-in (5 Cols) */}
           <div className="lg:col-span-5 space-y-6">
-            {/* 3. Team Name & Roster Summary */}
+            {/* 3. Team Composition & Roster Summary */}
             <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 backdrop-blur-md shadow-xl space-y-5">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -829,13 +938,58 @@ export const ManualRegistrationSection: React.FC<ManualRegistrationSectionProps>
                   </div>
                   <h2 className="text-base font-bold text-white flex items-center gap-2">
                     <Crown className="w-4 h-4 text-amber-400" />
-                    <span>Designate Team Leader</span>
+                    <span>Team Composition & Leader</span>
                   </h2>
                 </div>
-                <span className="text-xs text-amber-400 font-mono">
-                  {selectedMembers.length} member{selectedMembers.length !== 1 ? 's' : ''}
-                </span>
+
+                {/* Member count */}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-amber-400 font-mono font-bold">
+                    {selectedMembers.length} member{selectedMembers.length !== 1 ? 's' : ''}
+                  </span>
+                  {selectedMembers.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedMembers([]);
+                        setSelectedLeaderName('');
+                      }}
+                      className="text-[10px] text-rose-400 hover:text-rose-300 underline cursor-pointer"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
               </div>
+
+              {/* Inter-College / Single-College Status Badge */}
+              {selectedMembers.length > 0 && (
+                <div
+                  className={`p-3 rounded-xl border text-xs flex items-center justify-between ${
+                    memberColleges.length > 1
+                      ? 'bg-gradient-to-r from-purple-950/40 via-indigo-950/40 to-slate-900 border-purple-500/40 text-purple-200'
+                      : 'bg-slate-950 border-slate-800 text-slate-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    {memberColleges.length > 1 ? (
+                      <Globe className="w-4 h-4 text-purple-400 shrink-0" />
+                    ) : (
+                      <Building className="w-4 h-4 text-emerald-400 shrink-0" />
+                    )}
+                    <div>
+                      <div className="font-bold text-white text-xs">
+                        {memberColleges.length > 1
+                          ? `🌟 Inter-College Team (${memberColleges.length} Colleges)`
+                          : `🎓 Single College Team`}
+                      </div>
+                      <div className="text-[10px] text-slate-400 truncate max-w-[240px]">
+                        {memberColleges.join(', ')}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Team Name Input */}
               <div className="space-y-1.5">
@@ -851,11 +1005,28 @@ export const ManualRegistrationSection: React.FC<ManualRegistrationSectionProps>
                 />
               </div>
 
-              {/* Selected Members Roster with Leader Radio */}
+              {/* Primary / Lead College Name */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-mono uppercase tracking-wider text-slate-400 flex items-center justify-between">
+                  <span>Primary College Name *</span>
+                  <span className="text-[10px] text-slate-500">Defaults to Leader's College</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="Primary college name for certificate / desk records"
+                  value={primaryCollegeName}
+                  onChange={(e) => setPrimaryCollegeName(e.target.value)}
+                  className="w-full px-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 text-xs text-white placeholder-slate-500 outline-none transition"
+                />
+              </div>
+
+              {/* Selected Members Roster with Leader Radio & College Tags */}
               <div className="space-y-2">
                 <label className="text-xs font-mono uppercase tracking-wider text-slate-400 flex items-center justify-between">
                   <span>Selected Roster & Leader Selection</span>
-                  <span className="text-[10px] text-slate-500">Click crown to pick Leader</span>
+                  <span className="text-[10px] text-amber-400 flex items-center gap-1">
+                    <Crown className="w-3 h-3 text-amber-400" /> Click crown to pick Leader
+                  </span>
                 </label>
 
                 {selectedMembers.length === 0 ? (
@@ -863,7 +1034,7 @@ export const ManualRegistrationSection: React.FC<ManualRegistrationSectionProps>
                     No members selected yet. Check participants from the left list.
                   </div>
                 ) : (
-                  <div className="space-y-2">
+                  <div className="space-y-2 max-h-56 overflow-y-auto pr-1 custom-scrollbar">
                     {selectedMembers.map((m, idx) => {
                       const isLeader = selectedLeaderName.toLowerCase() === m.name.toLowerCase();
                       return (
@@ -879,7 +1050,7 @@ export const ManualRegistrationSection: React.FC<ManualRegistrationSectionProps>
                             <button
                               type="button"
                               onClick={() => handleSetLeader(m.name)}
-                              className={`p-1.5 rounded-lg transition ${
+                              className={`p-1.5 rounded-lg transition cursor-pointer ${
                                 isLeader
                                   ? 'bg-amber-400 text-slate-950 shadow-md'
                                   : 'bg-slate-800 text-slate-500 hover:text-amber-400 hover:bg-slate-700'
@@ -897,7 +1068,11 @@ export const ManualRegistrationSection: React.FC<ManualRegistrationSectionProps>
                                   </span>
                                 )}
                               </div>
-                              <div className="text-[11px] text-slate-400 font-mono">
+                              {/* Member College */}
+                              <div className="text-[10px] text-cyan-400 truncate max-w-[190px]">
+                                🎓 {m.collegeName}
+                              </div>
+                              <div className="text-[10px] text-slate-400 font-mono">
                                 {m.phone || m.email || 'No contact'}
                               </div>
                             </div>
@@ -918,7 +1093,7 @@ export const ManualRegistrationSection: React.FC<ManualRegistrationSectionProps>
                                   setSelectedLeaderName(updated[0].name);
                                 }
                               }}
-                              className="p-1 rounded text-slate-600 hover:text-red-400 transition"
+                              className="p-1 rounded text-slate-600 hover:text-red-400 transition cursor-pointer"
                               title="Remove member"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
@@ -931,7 +1106,7 @@ export const ManualRegistrationSection: React.FC<ManualRegistrationSectionProps>
                 )}
               </div>
 
-              {/* 4. CRITICAL REQUIREMENT DISPLAY: Domain Locked to Leader's Domain in Dataset */}
+              {/* 4. Domain Auto-Assigned by Leader Display */}
               <div className="p-4 rounded-xl bg-gradient-to-br from-indigo-950/60 to-purple-950/40 border border-indigo-500/40 space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-mono uppercase tracking-wider text-indigo-300 flex items-center gap-1.5 font-bold">
@@ -1049,7 +1224,7 @@ export const ManualRegistrationSection: React.FC<ManualRegistrationSectionProps>
               <button
                 type="button"
                 onClick={() => setShowAddCustomModal(false)}
-                className="text-slate-500 hover:text-white"
+                className="text-slate-500 hover:text-white cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -1063,6 +1238,17 @@ export const ManualRegistrationSection: React.FC<ManualRegistrationSectionProps>
                   placeholder="e.g. John Doe"
                   value={customName}
                   onChange={(e) => setCustomName(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white outline-none focus:border-cyan-500"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-slate-400 font-mono">College Name</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Kongu Engineering College"
+                  value={customCollege}
+                  onChange={(e) => setCustomCollege(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white outline-none focus:border-cyan-500"
                 />
               </div>
@@ -1094,7 +1280,7 @@ export const ManualRegistrationSection: React.FC<ManualRegistrationSectionProps>
               <button
                 type="button"
                 onClick={() => setShowAddCustomModal(false)}
-                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold"
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold cursor-pointer"
               >
                 Cancel
               </button>
@@ -1102,7 +1288,7 @@ export const ManualRegistrationSection: React.FC<ManualRegistrationSectionProps>
                 type="button"
                 onClick={handleAddCustomMember}
                 disabled={!customName.trim()}
-                className="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 disabled:opacity-50 text-slate-950 text-xs font-bold"
+                className="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 disabled:opacity-50 text-slate-950 text-xs font-bold cursor-pointer"
               >
                 Add Member
               </button>

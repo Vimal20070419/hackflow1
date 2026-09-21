@@ -393,11 +393,12 @@ export const manualRegisterTeam = async (req: Request, res: Response): Promise<v
     const effectiveDomain = leaderDatasetEntry?.domain || selectedDomain || 'Gen AI & AI';
     const problemStatements = getProblemsForDomain(effectiveDomain);
 
-    // Format members
+    // Format members with their individual college names
     const formattedMembers = members.map((m: any) => ({
       name: (m.name || '').trim(),
       email: (m.email || '').trim().toLowerCase(),
       phone: (m.phone || '').trim(),
+      collegeName: (m.collegeName || m.college || cleanCollege).trim(),
       isLeader: (m.name || '').trim().toLowerCase() === chosenLeaderName.toLowerCase(),
     }));
 
