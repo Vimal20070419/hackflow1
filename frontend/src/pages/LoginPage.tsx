@@ -23,7 +23,6 @@ interface LoginPageProps {
 
 export const LoginPage: React.FC<LoginPageProps> = ({ onSelectView, defaultDesk = 1 }) => {
   const { login, loginDemo } = useAuth();
-  const [selectedDesk, setSelectedDesk] = useState<number>(defaultDesk === 2 ? 2 : 1);
   const [email, setEmail] = useState<string>(
     defaultDesk === 2 ? 'desk2@hackathon.org' : 'desk1@hackathon.org'
   );
@@ -34,18 +33,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSelectView, defaultDesk 
   const [loading, setLoading] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const handleDeskSelect = (deskNum: number) => {
-    setSelectedDesk(deskNum);
-    setErrorMsg(null);
-    if (deskNum === 1) {
-      setEmail('desk1@hackathon.org');
-      setPassword('desk1pass123');
-    } else {
-      setEmail('desk2@hackathon.org');
-      setPassword('desk2pass123');
-    }
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -55,7 +42,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSelectView, defaultDesk 
     setLoading(false);
 
     if (res.success) {
-      onSelectView(selectedDesk === 2 ? 'desk2' : 'desk1');
+      onSelectView(email.includes('desk2') ? 'desk2' : 'desk1');
     } else {
       setErrorMsg(res.message || 'Invalid email or password. Please try again.');
     }
@@ -174,45 +161,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSelectView, defaultDesk 
           {/* Right Login Card */}
           <div className="md:col-span-6 p-6 sm:p-8 rounded-2xl bg-slate-900 border border-slate-800 shadow-2xl space-y-6">
             <div>
-              <h2 className="text-xl font-bold text-white font-['Outfit']">Select Desk Station</h2>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Choose your registration desk to auto-fill credentials
+              <h2 className="text-xl font-bold text-white font-['Outfit'] flex items-center gap-2">
+                <Shield className="w-5 h-5 text-emerald-400" />
+                <span>Staff Sign In</span>
+              </h2>
+              <p className="text-xs text-slate-400 mt-1">
+                Enter your staff credentials to access the registration desk
               </p>
-            </div>
-
-            {/* Desk Selection Toggle */}
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => handleDeskSelect(1)}
-                className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
-                  selectedDesk === 1
-                    ? 'bg-emerald-500/15 border-emerald-500/60 text-white shadow-lg shadow-emerald-500/10'
-                    : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:border-slate-700'
-                }`}
-              >
-                <div className="text-xs font-bold flex items-center justify-between">
-                  <span>Desk 1</span>
-                  {selectedDesk === 1 && <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />}
-                </div>
-                <div className="text-[11px] text-slate-400 mt-1">Station Alpha</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleDeskSelect(2)}
-                className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
-                  selectedDesk === 2
-                    ? 'bg-cyan-500/15 border-cyan-500/60 text-white shadow-lg shadow-cyan-500/10'
-                    : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:border-slate-700'
-                }`}
-              >
-                <div className="text-xs font-bold flex items-center justify-between">
-                  <span>Desk 2</span>
-                  {selectedDesk === 2 && <CheckCircle className="w-3.5 h-3.5 text-cyan-400" />}
-                </div>
-                <div className="text-[11px] text-slate-400 mt-1">Station Beta</div>
-              </button>
             </div>
 
             {/* Login Form */}
@@ -222,6 +177,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSelectView, defaultDesk 
                 <input
                   type="email"
                   required
+                  placeholder="e.g. desk1@hackathon.org"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full h-10 px-3.5 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs focus:outline-none focus:border-emerald-500"
@@ -234,6 +190,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSelectView, defaultDesk 
                   <input
                     type={showPassword ? 'text' : 'password'}
                     required
+                    placeholder="Enter password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     className="w-full h-10 pl-3.5 pr-10 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs focus:outline-none focus:border-emerald-500"
@@ -254,13 +211,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSelectView, defaultDesk 
                   <button
                     type="button"
                     onClick={() => {
-                      loginDemo(selectedDesk);
-                      onSelectView(selectedDesk === 2 ? 'desk2' : 'desk1');
+                      loginDemo(1);
+                      onSelectView('desk1');
                     }}
-                    className="w-full py-1.5 px-3 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 text-xs font-bold transition flex items-center justify-center gap-1.5"
+                    className="w-full py-1.5 px-3 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
                   >
                     <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-                    <span>Continue in Demo / Offline Mode (Desk {selectedDesk})</span>
+                    <span>Continue in Demo / Offline Mode</span>
                   </button>
                 </div>
               )}
@@ -271,19 +228,19 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSelectView, defaultDesk 
                 className="w-full py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-lg shadow-emerald-500/25"
               >
                 <LogIn className="w-4 h-4" />
-                <span>{loading ? 'Authenticating...' : `Launch Desk ${selectedDesk} Dashboard`}</span>
+                <span>{loading ? 'Authenticating...' : 'Sign In to Registration Desk'}</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => {
-                  loginDemo(selectedDesk);
-                  onSelectView(selectedDesk === 2 ? 'desk2' : 'desk1');
+                  loginDemo(1);
+                  onSelectView('desk1');
                 }}
                 className="w-full py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white text-xs font-medium border border-slate-800 transition flex items-center justify-center gap-1.5 cursor-pointer"
               >
                 <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                <span>Instant Demo Access (Desk {selectedDesk})</span>
+                <span>Instant Demo Access</span>
               </button>
 
               {/* Extra Participant Portal text link */}

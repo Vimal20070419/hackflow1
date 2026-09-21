@@ -223,17 +223,9 @@ export const ParticipantPortalPage: React.FC<ParticipantPortalPageProps> = ({ on
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8 space-y-6">
-      {/* Top Back Navigation Bar */}
-      <div className="flex items-center justify-between">
-        <button
-          onClick={() => (onSelectView ? onSelectView('desk1') : window.history.back())}
-          className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs font-bold text-slate-200 hover:text-white transition-all cursor-pointer shadow-sm"
-        >
-          <ArrowLeft className="w-4 h-4 text-emerald-400" />
-          <span>Back to Registration Desk</span>
-        </button>
-
-        {team && isUnlocked && (
+      {/* Top Navigation Bar */}
+      {team && isUnlocked && (
+        <div className="flex items-center justify-end">
           <button
             onClick={handleResetSession}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs font-semibold text-slate-400 hover:text-rose-400 transition-colors cursor-pointer"
@@ -241,8 +233,8 @@ export const ParticipantPortalPage: React.FC<ParticipantPortalPageProps> = ({ on
             <LogOut className="w-3.5 h-3.5" />
             <span>Switch Wristband</span>
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Brand Header */}
       <div className="text-center space-y-2">
