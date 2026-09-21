@@ -250,6 +250,22 @@ export const ParticipantPortalPage: React.FC<ParticipantPortalPageProps> = () =>
     await fetchTeamByBarcode(clean);
   };
 
+  // Disable and lock browser "Go Back" action while in Participant Portal
+  useEffect(() => {
+    // Push current portal state to prevent back navigation out of portal
+    window.history.pushState(null, '', window.location.href);
+
+    const handlePreventGoBack = (e: PopStateEvent) => {
+      e.preventDefault();
+      window.history.pushState(null, '', window.location.href);
+    };
+
+    window.addEventListener('popstate', handlePreventGoBack);
+    return () => {
+      window.removeEventListener('popstate', handlePreventGoBack);
+    };
+  }, []);
+
   // Auto-fetch if ?barcode= or ?qr= in URL
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
