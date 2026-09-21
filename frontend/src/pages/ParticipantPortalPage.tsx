@@ -1,6 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import confetti from 'canvas-confetti';
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import {
+  Camera,
+  CameraOff,
+  SwitchCamera,
   Barcode as BarcodeIcon,
   Building,
   Users,
@@ -8,7 +12,6 @@ import {
   CheckCircle2,
   AlertTriangle,
   ArrowRight,
-  ArrowLeft,
   Lock,
   Loader2,
   Check,
@@ -19,22 +22,36 @@ import {
   LogOut,
   Phone,
   Zap,
+  Sparkles,
+  Keyboard,
+  RefreshCw,
 } from 'lucide-react';
 import { ITeam, IProblemStatement } from '../types/index.js';
 import { api } from '../services/api.js';
 import { sound } from '../utils/sound.js';
 import { BarcodeRenderer } from '../components/BarcodeRenderer.js';
-import { useBarcodeScanner } from '../utils/useBarcodeScanner.js';
 
 interface ParticipantPortalPageProps {
   onSelectView?: (view: string) => void;
 }
 
-export const ParticipantPortalPage: React.FC<ParticipantPortalPageProps> = ({ onSelectView }) => {
+export const ParticipantPortalPage: React.FC<ParticipantPortalPageProps> = () => {
   const [barcodeInput, setBarcodeInput] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [team, setTeam] = useState<ITeam | null>(null);
+
+  // Device Camera States
+  const [cameraActive, setCameraActive] = useState<boolean>(true);
+  const [cameraLoading, setCameraLoading] = useState<boolean>(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [availableCameras, setAvailableCameras] = useState<any[]>([]);
+  const [selectedCameraIndex, setSelectedCameraIndex] = useState<number>(0);
+  const [showManualInput, setShowManualInput] = useState<boolean>(false);
+  const [lastScannedCode, setLastScannedCode] = useState<string | null>(null);
+
+  const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
+  const isScanningRef = useRef<boolean>(false);
 
   // Password Protection State (Team Leader Phone Number)
   const [teamBrief, setTeamBrief] = useState<{
@@ -56,7 +73,7 @@ export const ParticipantPortalPage: React.FC<ParticipantPortalPageProps> = ({ on
 
   // Normalizes input or URLs: "1" -> "BC-00001", "http://.../?barcode=BC-00001" -> "BC-00001"
   const normalizeBarcode = (val: string): string => {
-    let text = val.trim();
+    let text = (val || '').trim();
     if (text.includes('barcode=')) {
       try {
         const u = new URL(text);
@@ -84,16 +101,154 @@ export const ParticipantPortalPage: React.FC<ParticipantPortalPageProps> = ({ on
     return clean;
   };
 
-  // External Hardware Barcode Scanner Listener
-  useBarcodeScanner({
-    onScan: (scannedText) => {
-      const formatted = normalizeBarcode(scannedText);
-      sound.playSuccess();
-      setBarcodeInput(formatted);
-      fetchTeamByBarcode(formatted);
-    },
-    enabled: !isUnlocked,
-  });
+  // Start Built-in Device Camera (Mobile back camera / Laptop webcam)
+  const startCameraScanner = async () => {
+    if (isUnlocked) return;
+    setCameraLoading(true);
+    setCameraError(null);
+
+    try {
+      const qrScannerElementId = 'participant-device-camera-reader';
+      const el = document.getElementById(qrScannerElementId);
+      if (!el) {
+        setCameraLoading(false);
+        return;
+      }
+
+      // Stop any existing instance
+      if (html5QrCodeRef.current) {
+        try {
+          if (isScanningRef.current) {
+            await html5QrCodeRef.current.stop();
+          }
+        } catch (e) {
+          // ignore
+        }
+        html5QrCodeRef.current = null;
+        isScanningRef.current = false;
+      }
+
+      // Discover camera devices
+      let cameras: any[] = [];
+      try {
+        cameras = await Html5Qrcode.getCameras();
+        setAvailableCameras(cameras || []);
+      } catch (e) {
+        // ignore device listing error
+      }
+
+      const html5QrCode = new Html5Qrcode(qrScannerElementId, {
+        formatsToSupport: [
+          Html5QrcodeSupportedFormats.CODE_128,
+          Html5QrcodeSupportedFormats.CODE_39,
+          Html5QrcodeSupportedFormats.EAN_13,
+          Html5QrcodeSupportedFormats.UPC_A,
+          Html5QrcodeSupportedFormats.QR_CODE,
+        ],
+        verbose: false,
+      });
+      html5QrCodeRef.current = html5QrCode;
+
+      // Select camera: preferred camera ID if available, otherwise environment facing mode
+      let cameraConfig: any = { facingMode: 'environment' };
+      if (cameras && cameras.length > 0) {
+        const chosen = cameras[selectedCameraIndex] || cameras[0];
+        if (chosen?.id) {
+          cameraConfig = chosen.id;
+        }
+      }
+
+      await html5QrCode.start(
+        cameraConfig,
+        {
+          fps: 15,
+          qrbox: (viewfinderWidth, viewfinderHeight) => ({
+            width: Math.min(viewfinderWidth - 30, 320),
+            height: Math.min(viewfinderHeight - 30, 200),
+          }),
+        },
+        (decodedText) => {
+          handleCameraScanSuccess(decodedText);
+        },
+        () => {
+          // scanning frame
+        }
+      );
+
+      isScanningRef.current = true;
+      setCameraActive(true);
+    } catch (err: any) {
+      console.warn('[Camera] Device camera error:', err);
+      setCameraError(
+        'Camera permission was not granted or no built-in camera was found. Please allow camera permissions in your browser or enter your barcode manually below.'
+      );
+      setCameraActive(false);
+    } finally {
+      setCameraLoading(false);
+    }
+  };
+
+  const stopCameraScanner = async () => {
+    if (html5QrCodeRef.current && isScanningRef.current) {
+      try {
+        await html5QrCodeRef.current.stop();
+      } catch (e) {
+        // ignore
+      }
+      isScanningRef.current = false;
+    }
+    setCameraActive(false);
+  };
+
+  const handleToggleCamera = async () => {
+    if (cameraActive) {
+      await stopCameraScanner();
+    } else {
+      await startCameraScanner();
+    }
+  };
+
+  const handleSwitchCameraFacing = async () => {
+    if (availableCameras.length <= 1) return;
+    const nextIndex = (selectedCameraIndex + 1) % availableCameras.length;
+    setSelectedCameraIndex(nextIndex);
+    await stopCameraScanner();
+    setTimeout(() => {
+      startCameraScanner();
+    }, 200);
+  };
+
+  // Start camera on mount when portal is locked
+  useEffect(() => {
+    if (!isUnlocked && !team) {
+      const timer = setTimeout(() => {
+        startCameraScanner();
+      }, 300);
+      return () => {
+        clearTimeout(timer);
+        stopCameraScanner();
+      };
+    } else {
+      stopCameraScanner();
+    }
+  }, [isUnlocked, team, selectedCameraIndex]);
+
+  // Handle successful camera barcode/QR detection
+  const handleCameraScanSuccess = async (rawCode: string) => {
+    if (loading) return;
+    const clean = normalizeBarcode(rawCode);
+    if (!clean) return;
+
+    sound.playSuccess();
+    setLastScannedCode(clean);
+    setBarcodeInput(clean);
+
+    // Stop camera so it doesn't keep scanning in background
+    await stopCameraScanner();
+
+    // Fetch team
+    await fetchTeamByBarcode(clean);
+  };
 
   // Auto-fetch if ?barcode= or ?qr= in URL
   useEffect(() => {
@@ -146,7 +301,7 @@ export const ParticipantPortalPage: React.FC<ParticipantPortalPageProps> = ({ on
       } else {
         setErrorMsg(
           data?.message ||
-            'Could not verify wristband barcode. Ensure this wristband was activated at Registration Desk.'
+            'Could not verify wristband barcode. Ensure this wristband was assigned at Registration Desk.'
         );
         setTeam(null);
         setTeamBrief(null);
@@ -162,7 +317,7 @@ export const ParticipantPortalPage: React.FC<ParticipantPortalPageProps> = ({ on
       setPasswordError("Please enter the Team Leader's registered phone number.");
       return;
     }
-    const currentCode = teamBrief?.qrId || barcodeInput;
+    const currentCode = teamBrief?.qrId || barcodeInput || lastScannedCode || '';
     await fetchTeamByBarcode(currentCode, passwordInput.trim());
   };
 
@@ -174,6 +329,11 @@ export const ParticipantPortalPage: React.FC<ParticipantPortalPageProps> = ({ on
     setIsUnlocked(false);
     setErrorMsg(null);
     setPasswordError(null);
+    setLastScannedCode(null);
+    setBarcodeInput('');
+    setTimeout(() => {
+      startCameraScanner();
+    }, 200);
   };
 
   const handleSelectProblem = async (problem: IProblemStatement) => {
@@ -223,79 +383,187 @@ export const ParticipantPortalPage: React.FC<ParticipantPortalPageProps> = ({ on
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8 space-y-6">
-      {/* Top Navigation Bar */}
+      {/* Top Header Navigation (Switch Wristband if unlocked) */}
       {team && isUnlocked && (
         <div className="flex items-center justify-end">
           <button
             onClick={handleResetSession}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs font-semibold text-slate-400 hover:text-rose-400 transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs font-semibold text-slate-300 hover:text-rose-400 transition-colors cursor-pointer shadow-sm"
           >
-            <LogOut className="w-3.5 h-3.5" />
-            <span>Switch Wristband</span>
+            <LogOut className="w-4 h-4" />
+            <span>Scan Another Wristband</span>
           </button>
         </div>
       )}
 
       {/* Brand Header */}
       <div className="text-center space-y-2">
+        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold font-mono">
+          <Sparkles className="w-3.5 h-3.5" />
+          <span>HackFlow Participant Portal</span>
+        </div>
         <h1 className="text-3xl sm:text-4xl font-black text-white font-['Outfit'] tracking-tight">
-          Participant Portal
+          Wristband Scanner
         </h1>
+        <p className="text-xs sm:text-sm text-slate-400 max-w-md mx-auto">
+          Scan your wristband barcode using your mobile or laptop camera to verify your team and lock your problem statement.
+        </p>
       </div>
 
-      {/* STEP 1: Barcode Input Card (If not unlocked) */}
+      {/* STEP 1: Built-in Device Camera Scanner (If not unlocked) */}
       {!isUnlocked && (
-        <div className="p-6 rounded-2xl bg-slate-900 border border-slate-800 shadow-2xl max-w-lg mx-auto space-y-4">
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              fetchTeamByBarcode(barcodeInput);
-            }}
-            className="space-y-3"
-          >
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-                <BarcodeIcon className="w-4 h-4 text-emerald-400" />
-                <span>Wristband Barcode Scan</span>
-              </label>
-
-              {/* Hardware Scanner Status Badge */}
-              <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-[11px] font-semibold text-emerald-400">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                <span>Scanner Gun Active</span>
-              </div>
+        <div className="p-6 rounded-2xl bg-slate-900 border border-slate-800 shadow-2xl max-w-lg mx-auto space-y-5">
+          {/* Camera Scanner Header */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-xs font-bold text-slate-200">
+              <Camera className="w-4 h-4 text-emerald-400" />
+              <span>Device Camera Scanner</span>
             </div>
 
-            {/* Barcode Input and Submit Button */}
-            <div className="flex gap-2">
-              <div className="relative flex-1">
-                <BarcodeIcon className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  id="wristband-barcode-input"
-                  type="text"
-                  value={barcodeInput}
-                  onChange={(e) => setBarcodeInput(e.target.value.toUpperCase())}
-                  placeholder="Scan wristband with gun or type (e.g. BC-00001)..."
-                  className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 font-mono text-xs uppercase text-emerald-400 outline-none focus:border-emerald-500"
-                />
-              </div>
+            {/* Camera Controls */}
+            <div className="flex items-center gap-2">
+              {availableCameras.length > 1 && (
+                <button
+                  type="button"
+                  onClick={handleSwitchCameraFacing}
+                  className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs flex items-center gap-1 transition cursor-pointer"
+                  title="Switch Camera (Front/Back)"
+                >
+                  <SwitchCamera className="w-3.5 h-3.5 text-cyan-400" />
+                  <span className="text-[10px]">Switch</span>
+                </button>
+              )}
+
               <button
-                id="btn-access-wristband"
-                type="submit"
-                disabled={loading || !barcodeInput.trim()}
-                className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-md shadow-emerald-500/20 transition-all disabled:opacity-50"
+                type="button"
+                onClick={handleToggleCamera}
+                className={`p-1.5 rounded-lg text-xs flex items-center gap-1 transition cursor-pointer border ${
+                  cameraActive
+                    ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
+                    : 'bg-slate-800 border-slate-700 text-slate-400'
+                }`}
+                title={cameraActive ? 'Turn Camera Off' : 'Turn Camera On'}
               >
-                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Enter Portal'}
+                {cameraActive ? <Camera className="w-3.5 h-3.5" /> : <CameraOff className="w-3.5 h-3.5" />}
+                <span className="text-[10px]">{cameraActive ? 'Live' : 'Off'}</span>
               </button>
             </div>
-          </form>
+          </div>
 
+          {/* Live Camera Viewfinder Box */}
+          <div className="relative rounded-2xl overflow-hidden bg-slate-950 border-2 border-emerald-500/40 shadow-inner aspect-[4/3] flex flex-col items-center justify-center">
+            {/* HTML5 QR Code Container */}
+            <div id="participant-device-camera-reader" className="w-full h-full object-cover"></div>
+
+            {/* Overlay Target Framing */}
+            {cameraActive && !loading && (
+              <div className="absolute inset-6 border-2 border-dashed border-emerald-400/70 rounded-2xl pointer-events-none flex flex-col items-center justify-between p-3">
+                <span className="text-[10px] font-mono font-bold text-emerald-400 bg-slate-950/80 px-2.5 py-0.5 rounded-md flex items-center gap-1.5 shadow">
+                  <BarcodeIcon className="w-3 h-3 text-emerald-400" />
+                  POINT CAMERA AT WRISTBAND
+                </span>
+
+                {/* Laser scan line animation */}
+                <div className="w-full h-0.5 bg-gradient-to-r from-transparent via-emerald-400 to-transparent animate-pulse shadow-sm shadow-emerald-400"></div>
+
+                <span className="text-[9px] text-slate-400 font-mono bg-slate-950/80 px-2 py-0.5 rounded">
+                  Supports 1D Barcodes & QR Codes
+                </span>
+              </div>
+            )}
+
+            {/* Camera Loading Overlay */}
+            {cameraLoading && (
+              <div className="absolute inset-0 bg-slate-950/80 flex flex-col items-center justify-center gap-2 text-xs text-slate-400">
+                <Loader2 className="w-6 h-6 animate-spin text-emerald-400" />
+                <span>Opening device camera...</span>
+              </div>
+            )}
+
+            {/* Inactive Camera State */}
+            {!cameraActive && !cameraLoading && (
+              <div className="absolute inset-0 bg-slate-950 flex flex-col items-center justify-center gap-3 p-6 text-center">
+                <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-500">
+                  <CameraOff className="w-6 h-6" />
+                </div>
+                <p className="text-xs text-slate-400 max-w-xs">
+                  Camera is paused or access was not granted.
+                </p>
+                <button
+                  type="button"
+                  onClick={startCameraScanner}
+                  className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 transition cursor-pointer shadow-md shadow-emerald-500/20"
+                >
+                  <Camera className="w-4 h-4" />
+                  <span>Start Camera</span>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Camera Error Alert */}
+          {cameraError && (
+            <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 shrink-0 text-amber-400 mt-0.5" />
+              <span>{cameraError}</span>
+            </div>
+          )}
+
+          {/* Loading Indicator */}
+          {loading && (
+            <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-center justify-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin text-emerald-400" />
+              <span>Verifying wristband #{barcodeInput || lastScannedCode}...</span>
+            </div>
+          )}
+
+          {/* General Error Message */}
           {errorMsg && (
             <div className="p-3 rounded-xl bg-rose-950/40 border border-rose-500/40 text-rose-300 text-xs flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 flex-shrink-0 text-rose-400" />
               <span>{errorMsg}</span>
             </div>
           )}
+
+          {/* Manual Input Fallback Accordion */}
+          <div className="pt-2 border-t border-slate-800">
+            <button
+              type="button"
+              onClick={() => setShowManualInput(!showManualInput)}
+              className="w-full text-center text-xs font-semibold text-slate-400 hover:text-emerald-400 flex items-center justify-center gap-1.5 py-1 transition cursor-pointer"
+            >
+              <Keyboard className="w-3.5 h-3.5" />
+              <span>{showManualInput ? 'Hide Manual Entry' : 'Or Type Barcode Manually'}</span>
+            </button>
+
+            {showManualInput && (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  fetchTeamByBarcode(barcodeInput);
+                }}
+                className="mt-3 flex gap-2"
+              >
+                <div className="relative flex-1">
+                  <BarcodeIcon className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={barcodeInput}
+                    onChange={(e) => setBarcodeInput(e.target.value.toUpperCase())}
+                    placeholder="e.g. BC-00042 or 42..."
+                    className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 font-mono text-xs uppercase text-emerald-400 outline-none focus:border-emerald-500"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={loading || !barcodeInput.trim()}
+                  className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-md shadow-emerald-500/20 transition-all disabled:opacity-50"
+                >
+                  <span>Submit</span>
+                </button>
+              </form>
+            )}
+          </div>
 
           {/* STEP 2: Password Prompt (Team Leader's Phone Number) */}
           {teamBrief && !isUnlocked && (
@@ -385,7 +653,9 @@ export const ParticipantPortalPage: React.FC<ParticipantPortalPageProps> = ({ on
                   <span className="px-2.5 py-1 rounded-md text-xs font-mono font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
                     <Check className="w-3 h-3" /> Wristband: {team.qrId}
                   </span>
-                  <span className="px-2.5 py-1 rounded-md text-xs font-bold bg-indigo-500/15 text-indigo-400 border border-indigo-500/30">{team.domain}</span>
+                  <span className="px-2.5 py-1 rounded-md text-xs font-bold bg-indigo-500/15 text-indigo-400 border border-indigo-500/30">
+                    {team.domain}
+                  </span>
                 </div>
                 <h2 className="text-2xl sm:text-3xl font-black text-white font-['Outfit'] tracking-tight">
                   {team.teamName}
@@ -441,6 +711,11 @@ export const ParticipantPortalPage: React.FC<ParticipantPortalPageProps> = ({ on
                     }`}
                   >
                     <div className="font-bold text-slate-200 truncate">{m.name}</div>
+                    {m.collegeName && (
+                      <div className="text-[10px] text-cyan-400 truncate mt-0.5">
+                        {m.collegeName}
+                      </div>
+                    )}
                     <div className="text-[10px] text-slate-400 truncate mt-0.5">
                       {m.phone || m.email || 'Member'}
                     </div>
@@ -525,7 +800,7 @@ export const ParticipantPortalPage: React.FC<ParticipantPortalPageProps> = ({ on
                           {prob.title}
                         </h4>
 
-                        <p className="text-xs text-slate-300 leading-relaxed">
+                        <p className="text-xs text-slate-300 leading-relaxed whitespace-pre-line">
                           {prob.description}
                         </p>
 
